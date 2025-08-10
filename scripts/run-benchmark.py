@@ -12,11 +12,13 @@ from datetime import datetime
 from typing import List, Dict, Any
 
 class BenchmarkRunner:
-    def __init__(self, target_image: str, num_runs: int, output_file: str, container_name: str):
+    def __init__(self, target_image: str, num_runs: int, output_file: str, container_name: str, cpu_limit: str = "0", memory_limit: str = "0"):
         self.target_image = target_image
         self.num_runs = num_runs
         self.output_file = output_file
         self.container_name = container_name
+        self.cpu_limit = cpu_limit
+        self.memory_limit = memory_limit
         self.stats_data: List[Dict] = []
         self.stats_thread = None
         self.monitoring = False
@@ -320,6 +322,8 @@ class BenchmarkRunner:
             "benchmark_config": {
                 "target_image": self.target_image,
                 "num_runs": self.num_runs,
+                "cpu_limit": self.cpu_limit,
+                "memory_limit": self.memory_limit,
                 "timestamp": datetime.now().isoformat()
             },
             "summary": {
@@ -346,21 +350,25 @@ def main():
     print(f"   Script: {sys.argv[0]}")
     print(f"   Arguments: {sys.argv[1:]}")
 
-    if len(sys.argv) != 5:
-        print("Usage: run-benchmark.py <target_image> <num_runs> <output_file> <container_name>")
+    if len(sys.argv) not in [5, 7]:
+        print("Usage: run-benchmark.py <target_image> <num_runs> <output_file> <container_name> [cpu_limit] [memory_limit]")
         sys.exit(1)
 
     target_image = sys.argv[1]
     num_runs = int(sys.argv[2])
     output_file = sys.argv[3]
     container_name = sys.argv[4]
+    cpu_limit = sys.argv[5] if len(sys.argv) > 5 else "0"
+    memory_limit = sys.argv[6] if len(sys.argv) > 6 else "0"
 
     print(f"🎯 Initializing benchmark runner...")
     print(f"   Target: {target_image}")
     print(f"   Runs: {num_runs}")
     print(f"   Output: {output_file}")
+    print(f"   CPU Limit: {cpu_limit}")
+    print(f"   Memory Limit: {memory_limit}")
 
-    runner = BenchmarkRunner(target_image, num_runs, output_file, container_name)
+    runner = BenchmarkRunner(target_image, num_runs, output_file, container_name, cpu_limit, memory_limit)
 
     try:
         results = runner.run_benchmark_suite()

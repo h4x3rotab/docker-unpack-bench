@@ -6,11 +6,15 @@ TARGET_IMAGE="${TARGET_IMAGE:-docker.io/tensorflow/tensorflow:latest}"
 NUM_RUNS="${NUM_RUNS:-5}"
 OUTPUT_DIR="${OUTPUT_DIR:-/workspace/results}"
 CONTAINER_NAME="${CONTAINER_NAME:-unpack-benchmark}"
+CPU_LIMIT="${CPU_LIMIT:-0}"
+MEMORY_LIMIT="${MEMORY_LIMIT:-0}"
 
 echo "🚀 Starting unpack benchmark"
 echo "  Image: $TARGET_IMAGE"
 echo "  Runs: $NUM_RUNS"
 echo "  Container: $CONTAINER_NAME"
+echo "  CPU Limit: $CPU_LIMIT"
+echo "  Memory Limit: $MEMORY_LIMIT"
 
 # Ensure results directory exists
 mkdir -p "$OUTPUT_DIR"
@@ -45,7 +49,7 @@ echo "📊 Starting benchmark session..."
 echo "  Results will be saved to: $RESULT_FILE"
 
 # Run the benchmark script
-python3 /workspace/scripts/run-benchmark.py "$TARGET_IMAGE" "$NUM_RUNS" "$RESULT_FILE" "$CONTAINER_NAME"
+python3 /workspace/scripts/run-benchmark.py "$TARGET_IMAGE" "$NUM_RUNS" "$RESULT_FILE" "$CONTAINER_NAME" "$CPU_LIMIT" "$MEMORY_LIMIT"
 
 echo "✅ Benchmark completed! Results saved to $RESULT_FILE"
 

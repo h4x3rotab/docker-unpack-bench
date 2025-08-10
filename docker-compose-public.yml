@@ -1,0 +1,49 @@
+# Container Unpack Performance Benchmark
+# 
+# Quick start:
+#   curl -O https://gist.githubusercontent.com/h4x3rotab/GIST_ID/raw/docker-compose.yml
+#   docker compose up
+#
+# Custom benchmark:
+#   TARGET_IMAGE=ubuntu:latest NUM_RUNS=10 docker compose up
+#
+# Resource limits:
+#   CPU_LIMIT=2.0 MEMORY_LIMIT=4g docker compose up
+#
+# View results:
+#   cat results/benchmark_*.json | jq '.summary'
+
+services:
+  benchmark:
+    image: h4x3rotab/bench-unpack:latest
+    container_name: unpack-benchmark
+    privileged: true
+    working_dir: /workspace
+    deploy:
+      resources:
+        limits:
+          cpus: '${CPU_LIMIT:-0}'
+          memory: ${MEMORY_LIMIT:-0}
+    volumes:
+      # Mount current directory for results output only
+      - ./results:/workspace/results
+      # Mount Docker socket for stats collection inside container
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Cache downloaded images to avoid re-downloading
+      - containerd-cache:/var/lib/containerd
+      # Mount Docker lib for Docker-in-Docker
+      - /var/lib/docker:/var/lib/docker
+    environment:
+      - TARGET_IMAGE=${TARGET_IMAGE:-docker.io/tensorflow/tensorflow:latest}
+      - NUM_RUNS=${NUM_RUNS:-5}
+      - OUTPUT_DIR=/workspace/results
+      - CONTAINER_NAME=unpack-benchmark
+      - PYTHONUNBUFFERED=1
+      - CPU_LIMIT=${CPU_LIMIT:-0}
+      - MEMORY_LIMIT=${MEMORY_LIMIT:-0}
+    depends_on: []
+
+volumes:
+  # Persistent cache for containerd images
+  containerd-cache:
+    driver: local
