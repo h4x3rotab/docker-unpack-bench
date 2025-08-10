@@ -1,0 +1,26 @@
+services:
+  benchmark:
+    build: .
+    container_name: unpack-benchmark
+    privileged: true
+    working_dir: /workspace
+    volumes:
+      # Mount workspace for scripts and results
+      - .:/workspace
+      # Mount Docker socket for stats collection inside container
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Cache downloaded images to avoid re-downloading
+      - containerd-cache:/var/lib/containerd
+      # Mount Docker lib for Docker-in-Docker
+      - /var/lib/docker:/var/lib/docker
+    environment:
+      - TARGET_IMAGE=${TARGET_IMAGE:-docker.io/tensorflow/tensorflow:latest}
+      - NUM_RUNS=${NUM_RUNS:-5}
+      - OUTPUT_DIR=/workspace/results
+      - CONTAINER_NAME=unpack-benchmark
+    depends_on: []
+
+volumes:
+  # Persistent cache for containerd images
+  containerd-cache:
+    driver: local
