@@ -26,6 +26,7 @@ class BenchmarkRunner:
         print(f"📈 Starting stats collection for container: {self.container_name}")
         
         cmd = ["docker", "stats", self.container_name, "--format", "json", "--no-stream"]
+        sample_count = 0
         
         while self.monitoring:
             try:
@@ -34,6 +35,12 @@ class BenchmarkRunner:
                     stats_json = json.loads(result.stdout.strip())
                     stats_json['timestamp'] = datetime.now().isoformat()
                     self.stats_data.append(stats_json)
+                    
+                    # Show live progress every second (10 samples at 100ms)
+                    sample_count += 1
+                    if sample_count % 10 == 0:
+                        self.show_live_progress(stats_json)
+                        
                 time.sleep(0.1)  # Sample every 100ms
             except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
                 # Continue monitoring even if we get occasional errors
@@ -118,8 +125,9 @@ class BenchmarkRunner:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             end_time = time.time()
             
-            # Stop monitoring
+            # Stop monitoring and clear progress line
             stats_data = self.stop_monitoring()
+            print()  # New line after progress display
             
             duration = end_time - start_time
             success = result.returncode == 0
@@ -156,17 +164,22 @@ class BenchmarkRunner:
             }
     
     def analyze_stats(self, stats_data: List[Dict]) -> Dict[str, Any]:
-        """Analyze collected stats to find peak values."""
+        """Analyze collected stats to find peak values from JSON data."""
         if not stats_data:
             return {}
         
         try:
-            # Parse CPU percentages (remove % sign)
             cpu_values = []
             memory_values = []
             pid_values = []
+            block_io_read = []
+            block_io_write = []
+            net_io_rx = []
+            net_io_tx = []
             
             for stat in stats_data:
+                # All fields are now from JSON format
+                
                 # Parse CPU (e.g., "25.45%" -> 25.45)
                 cpu_str = stat.get('CPUPerc', '0%').replace('%', '')
                 try:
@@ -174,23 +187,31 @@ class BenchmarkRunner:
                 except ValueError:
                     pass
                 
-                # Parse Memory (e.g., "150.1MiB" -> 150.1 in MB)
-                mem_str = stat.get('MemUsage', '0B').split(' / ')[0]
-                try:
-                    if 'MiB' in mem_str:
-                        memory_values.append(float(mem_str.replace('MiB', '')))
-                    elif 'GiB' in mem_str:
-                        memory_values.append(float(mem_str.replace('GiB', '')) * 1024)
-                    elif 'KiB' in mem_str:
-                        memory_values.append(float(mem_str.replace('KiB', '')) / 1024)
-                except ValueError:
-                    pass
+                # Parse Memory (e.g., "150.1MiB / 31.33GiB")
+                mem_usage = stat.get('MemUsage', '0B / 0B')
+                if ' / ' in mem_usage:
+                    mem_str = mem_usage.split(' / ')[0]
+                    memory_values.append(self.parse_size_to_mb(mem_str))
                 
-                # Parse PIDs
+                # Parse PIDs (already a string number in JSON)
                 try:
-                    pid_values.append(int(stat.get('PIDs', 0)))
+                    pid_values.append(int(stat.get('PIDs', '0')))
                 except (ValueError, TypeError):
                     pass
+                
+                # Parse Block I/O (e.g., "1.56MB / 10.2MB")
+                block_io = stat.get('BlockIO', '0B / 0B')
+                if ' / ' in block_io:
+                    read_str, write_str = block_io.split(' / ')
+                    block_io_read.append(self.parse_size_to_mb(read_str))
+                    block_io_write.append(self.parse_size_to_mb(write_str))
+                
+                # Parse Network I/O (e.g., "648KB / 12KB")
+                net_io = stat.get('NetIO', '0B / 0B')
+                if ' / ' in net_io:
+                    rx_str, tx_str = net_io.split(' / ')
+                    net_io_rx.append(self.parse_size_to_mb(rx_str))
+                    net_io_tx.append(self.parse_size_to_mb(tx_str))
             
             return {
                 "cpu_peak_percent": max(cpu_values) if cpu_values else 0,
@@ -198,10 +219,70 @@ class BenchmarkRunner:
                 "memory_peak_mb": max(memory_values) if memory_values else 0,
                 "memory_avg_mb": sum(memory_values) / len(memory_values) if memory_values else 0,
                 "pid_peak_count": max(pid_values) if pid_values else 0,
+                "block_io_read_peak_mb": max(block_io_read) if block_io_read else 0,
+                "block_io_write_peak_mb": max(block_io_write) if block_io_write else 0,
+                "block_io_total_write_mb": block_io_write[-1] if block_io_write else 0,
+                "net_io_rx_mb": max(net_io_rx) if net_io_rx else 0,
+                "net_io_tx_mb": max(net_io_tx) if net_io_tx else 0,
                 "samples_collected": len(stats_data)
             }
         except Exception as e:
             return {"error": f"Stats analysis failed: {str(e)}"}
+    
+    def parse_size_to_mb(self, size_str: str) -> float:
+        """Parse size string like '1.56MB', '2.3GiB', '512KB' to MB."""
+        size_str = size_str.strip()
+        if not size_str or size_str == '0B':
+            return 0.0
+        
+        try:
+            # Extract number and unit using regex
+            import re
+            match = re.match(r'^([0-9.]+)\s*([A-Za-z]+)$', size_str)
+            if not match:
+                return 0.0
+            
+            value = float(match.group(1))
+            unit = match.group(2).upper()
+            
+            # Convert to MB based on unit
+            conversions = {
+                'B': 1 / (1024 * 1024),
+                'KB': 1 / 1024,
+                'KIB': 1 / 1024,
+                'MB': 1,
+                'MIB': 1,
+                'GB': 1024,
+                'GIB': 1024,
+                'TB': 1024 * 1024,
+                'TIB': 1024 * 1024
+            }
+            
+            return value * conversions.get(unit, 1)
+        except (ValueError, AttributeError):
+            return 0.0
+    
+    def show_live_progress(self, current_stats: Dict):
+        """Display live progress during unpacking."""
+        try:
+            # Parse current stats
+            cpu = current_stats.get('CPUPerc', '0%').replace('%', '')
+            mem_usage = current_stats.get('MemUsage', '0B / 0B').split(' / ')[0]
+            block_io = current_stats.get('BlockIO', '0B / 0B')
+            pids = current_stats.get('PIDs', '0')
+            
+            # Parse block I/O
+            read_write = block_io.split(' / ')
+            read_mb = self.parse_size_to_mb(read_write[0]) if len(read_write) > 0 else 0
+            write_mb = self.parse_size_to_mb(read_write[1]) if len(read_write) > 1 else 0
+            mem_mb = self.parse_size_to_mb(mem_usage)
+            
+            # Show progress line (overwrite previous)
+            progress = f"\r⚡ CPU: {cpu:>6}% | Mem: {mem_mb:>6.1f}MB | Write: {write_mb:>7.1f}MB | PIDs: {pids:>2}"
+            print(progress, end='', flush=True)
+            
+        except Exception:
+            pass  # Don't let progress display break the benchmark
     
     def run_benchmark_suite(self) -> Dict[str, Any]:
         """Run the complete benchmark suite."""
@@ -273,6 +354,20 @@ def main():
         print(f"   Average duration: {summary['avg_duration_seconds']:.3f}s")
         if summary['successful_runs'] > 0:
             print(f"   Duration range: {summary['min_duration_seconds']:.3f}s - {summary['max_duration_seconds']:.3f}s")
+            
+            # Show peak metrics from all runs if available
+            if results.get('runs') and len(results['runs']) > 0:
+                # Get max values across all runs
+                all_metrics = [r.get('peak_metrics', {}) for r in results['runs'] if r.get('success')]
+                if all_metrics:
+                    max_cpu = max((m.get('cpu_peak_percent', 0) for m in all_metrics), default=0)
+                    max_mem = max((m.get('memory_peak_mb', 0) for m in all_metrics), default=0)
+                    max_write = max((m.get('block_io_total_write_mb', 0) for m in all_metrics), default=0)
+                    
+                    print(f"\n📈 Peak Metrics:")
+                    print(f"   CPU: {max_cpu:.1f}%")
+                    print(f"   Memory: {max_mem:.1f} MB")
+                    print(f"   Disk Write: {max_write:.1f} MB")
         
     except KeyboardInterrupt:
         print("\n🛑 Benchmark interrupted by user")

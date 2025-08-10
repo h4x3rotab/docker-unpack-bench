@@ -15,7 +15,7 @@ services:
       - /var/lib/docker:/var/lib/docker
     environment:
       - TARGET_IMAGE=${TARGET_IMAGE:-docker.io/tensorflow/tensorflow:latest}
-      - NUM_RUNS=${NUM_RUNS:-5}
+      - NUM_RUNS=${NUM_RUNS:-3}
       - OUTPUT_DIR=/workspace/results
       - CONTAINER_NAME=unpack-benchmark
     depends_on: []
